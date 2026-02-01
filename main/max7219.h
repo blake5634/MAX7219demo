@@ -67,4 +67,7 @@ uint16_t max7219_get_string_width(const char *str);
 // Display test mode (lights all LEDs when enabled)
 void max7219_display_test(max7219_t *dev, bool enable);
 
+// Enable/disable display (for PWM brightness control)
+void max7219_set_enabled(max7219_t *dev, bool enabled);
+
 #endif // MAX7219_H

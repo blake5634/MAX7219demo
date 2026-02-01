@@ -376,3 +376,7 @@ uint16_t max7219_get_string_width(const char *str) {
 void max7219_display_test(max7219_t *dev, bool enable) {
     max7219_send_to_all(dev, MAX7219_REG_DISPLAYTEST, enable ? 0x01 : 0x00);
 }
+
+void max7219_set_enabled(max7219_t *dev, bool enabled) {
+    max7219_send_to_all(dev, MAX7219_REG_SHUTDOWN, enabled ? 0x01 : 0x00);
+}
