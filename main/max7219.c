@@ -277,6 +277,11 @@ esp_err_t max7219_init(max7219_t *dev, const max7219_config_t *config) {
         return ret;
     }
 
+    // Store GPIO pins for ISR-safe bit-banging
+    dev->pin_mosi = config->pin_mosi;
+    dev->pin_clk = config->pin_clk;
+    dev->pin_cs = config->pin_cs;
+
     // Initialize all MAX7219 chips
     max7219_send_to_all(dev, MAX7219_REG_DISPLAYTEST, 0x00);  // Normal operation
     max7219_send_to_all(dev, MAX7219_REG_SCANLIMIT, 0x07);    // Display all 8 digits
@@ -379,4 +384,35 @@ void max7219_display_test(max7219_t *dev, bool enable) {
 
 void max7219_set_enabled(max7219_t *dev, bool enabled) {
     max7219_send_to_all(dev, MAX7219_REG_SHUTDOWN, enabled ? 0x01 : 0x00);
+}
+
+// ISR-safe version using GPIO bit-banging
+// Sends shutdown register command to all chips without using SPI driver
+void IRAM_ATTR max7219_set_enabled_isr(max7219_t *dev, bool enabled)
+{
+    uint8_t reg = MAX7219_REG_SHUTDOWN;
+    uint8_t data = enabled ? 0x01 : 0x00;
+
+    // Pull CS low to start transaction
+    gpio_set_level(dev->pin_cs, 0);
+
+    // Send 16 bits (reg + data) to each chip in chain
+    // MSB first, clock data on rising edge
+    for (int chip = 0; chip < MAX7219_NUM_CHIPS; chip++) {
+        // Send register address (8 bits)
+        for (int bit = 7; bit >= 0; bit--) {
+            gpio_set_level(dev->pin_mosi, (reg >> bit) & 1);
+            gpio_set_level(dev->pin_clk, 1);
+            gpio_set_level(dev->pin_clk, 0);
+        }
+        // Send data (8 bits)
+        for (int bit = 7; bit >= 0; bit--) {
+            gpio_set_level(dev->pin_mosi, (data >> bit) & 1);
+            gpio_set_level(dev->pin_clk, 1);
+            gpio_set_level(dev->pin_clk, 0);
+        }
+    }
+
+    // Pull CS high to latch data
+    gpio_set_level(dev->pin_cs, 1);
 }

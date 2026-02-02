@@ -38,6 +38,10 @@ typedef struct {
 typedef struct {
     spi_device_handle_t spi_handle;
     uint8_t framebuffer[MAX7219_DISPLAY_WIDTH];  // Column-based framebuffer
+    // GPIO pins stored for ISR-safe bit-banging
+    gpio_num_t pin_mosi;
+    gpio_num_t pin_clk;
+    gpio_num_t pin_cs;
 } max7219_t;
 
 // Initialize the MAX7219 chain
@@ -69,5 +73,8 @@ void max7219_display_test(max7219_t *dev, bool enable);
 
 // Enable/disable display (for PWM brightness control)
 void max7219_set_enabled(max7219_t *dev, bool enabled);
+
+// ISR-safe version using GPIO bit-banging (for hardware timer PWM)
+void max7219_set_enabled_isr(max7219_t *dev, bool enabled);
 
 #endif // MAX7219_H
