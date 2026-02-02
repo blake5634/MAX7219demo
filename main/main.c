@@ -8,6 +8,12 @@
 
 static const char *TAG = "MAX7219_DEMO";
 
+// forward declarations
+static void max7219_scrolling_task(void*);
+static void max7219_fixed_task(void*);
+int light2pwm(adc_oneshot_unit_handle_t);
+
+
 // Pin definitions for ESP32-C6
 #define PIN_MOSI    GPIO_NUM_0   // DIN
 #define PIN_CS      GPIO_NUM_2   // CS
@@ -19,8 +25,8 @@ static const char *TAG = "MAX7219_DEMO";
 #define SCROLL_DELAY_MS 400
 
 // Message to display
-// static const char *MESSAGE = "Hello from Claude!   ";
-static const char *MESSAGE = "10:04";
+static const char *MESSAGE = "Hello from Claude!   ";
+// static const char *MESSAGE = "10:04";
 
 // PWM brightness control (0-100, where 100 = full brightness at intensity 1)
 // Lower values = dimmer. This allows going below the MAX7219's minimum intensity.
@@ -30,30 +36,90 @@ static uint8_t pwm_brightness = 50;  // Initial brightness before ADC takes over
 #define PWM_PERIOD_MS 50
 
 
-
 // Brightness tuning parameters (adjust these to taste)
 // ADC readings: low voltage (bright room) = low reading, high voltage (dark room) = high reading
 #define BRIGHTNESS_MIN      5    // Minimum brightness % (dark room)
 #define BRIGHTNESS_MAX      100  // Maximum brightness % (bright room)
-#define ADC_BRIGHT_LIMIT 100   // ADC reading in bright ambient light
-#define ADC_DARK_LIMIT   3500  // ADC reading in dark ambient light
+#define ADC_BRIGHT_LIMIT 100     // ADC reading in bright ambient light
+#define ADC_DARK_LIMIT   3500    // ADC reading in dark ambient light
 
 // Display task parameters
 typedef struct {
     max7219_t *display;
     const char *message;
     adc_oneshot_unit_handle_t adc_handle;
-} display_task_params_t;
+} max2719_task_params_t;
+
+//
+//  Read ambient light level and map it to display brightness pwm value
+//
+
+static int jpwm =0;
+
+int light2pwm(adc_oneshot_unit_handle_t adc_handle){
+    // Read ambient light and update brightness
+    int adc_reading = 0;
+    if (adc_handle !=NULL && adc_oneshot_read(adc_handle, ADC_CHANNEL, &adc_reading) == ESP_OK) {
+        // Clamp to thresholds
+        if (adc_reading < ADC_BRIGHT_LIMIT) adc_reading = ADC_BRIGHT_LIMIT;
+        if (adc_reading > ADC_DARK_LIMIT) adc_reading = ADC_DARK_LIMIT;
+
+        // Map: photoresistor voltage divider output  to brightness:
+        //     (low ADC) -> high brightness, dark (high ADC) -> low brightness
+        int adc_range = ADC_DARK_LIMIT - ADC_BRIGHT_LIMIT;
+        int brightness_range = BRIGHTNESS_MAX - BRIGHTNESS_MIN;
+        uint8_t pwm = BRIGHTNESS_MAX - ((adc_reading - ADC_BRIGHT_LIMIT) * brightness_range / adc_range);
+        if ((jpwm++)%5 == 0) ESP_LOGI("scrolling_task:", "adc: %d", adc_reading);
+        return pwm;
+        }
+    else return 0;
+    }
+
+
+static void max7219_fixed_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "start of max7219_fixed_task()");
+    max2719_task_params_t *params = (max2719_task_params_t *)pvParameters;
+    max7219_t *display = params->display;
+    const char *message = params->message;
+    adc_oneshot_unit_handle_t adc_handle = params->adc_handle;
+
+    uint16_t message_width = max7219_get_string_width(message);
+    int16_t scroll_pos = MAX7219_DISPLAY_WIDTH;
+    ESP_LOGI(TAG, "... got here ...");
+
+    // Update display content (todo:  read from a message queue and move into loop)
+    max7219_draw_string(display, scroll_pos, message);
+    max7219_refresh(display);
+
+    while(1){
+            //  Figure out how bright display should be based on ambient light sensor
+            pwm_brightness = light2pwm(adc_handle);
+
+            // pw modulate the display
+            int cycle_ms = PWM_PERIOD_MS;
+            int on_time = (cycle_ms * pwm_brightness) / 100;
+            int off_time = cycle_ms - on_time;
+
+            if (on_time > 0) {
+                max7219_set_enabled(display, true);
+                vTaskDelay(pdMS_TO_TICKS(on_time));
+            }
+            if (off_time > 0) {
+                max7219_set_enabled(display, false);
+                vTaskDelay(pdMS_TO_TICKS(off_time));
+            }
+    }
+}
+
 
 //
 // Combined display task - handles scrolling and PWM brightness
 //
 
-
-
-static void max7219_display_task(void *pvParameters)
+static void max7219_scrolling_task(void *pvParameters)
 {
-    display_task_params_t *params = (display_task_params_t *)pvParameters;
+    max2719_task_params_t *params = (max2719_task_params_t *)pvParameters;
     max7219_t *display = params->display;
     const char *message = params->message;
     adc_oneshot_unit_handle_t adc_handle = params->adc_handle;
@@ -62,32 +128,20 @@ static void max7219_display_task(void *pvParameters)
     int16_t scroll_pos = MAX7219_DISPLAY_WIDTH;
 
     int j=0;
-    scroll_pos=2;   // for static display
     while (1) {
         j++;
-        // Read ambient light and update brightness
-        int adc_reading = 0;
-        if (adc_handle !=NULL && adc_oneshot_read(adc_handle, ADC_CHANNEL, &adc_reading) == ESP_OK) {
-            // Clamp to thresholds
-            if (adc_reading < ADC_BRIGHT_LIMIT) adc_reading = ADC_BRIGHT_LIMIT;
-            if (adc_reading > ADC_DARK_LIMIT) adc_reading = ADC_DARK_LIMIT;
-
-            // Map: bright (low ADC) -> high brightness, dark (high ADC) -> low brightness
-            int adc_range = ADC_DARK_LIMIT - ADC_BRIGHT_LIMIT;
-            int brightness_range = BRIGHTNESS_MAX - BRIGHTNESS_MIN;
-            pwm_brightness = BRIGHTNESS_MAX - ((adc_reading - ADC_BRIGHT_LIMIT) * brightness_range / adc_range);
-            if (j%5 == 0) ESP_LOGI("display_task:", "adc: %d   pwm: %d", adc_reading, pwm_brightness);
-        }
+        //  Figure out how bright display should be based on ambient light sensor
+        pwm_brightness = light2pwm(adc_handle);
 
         // Update display content
         max7219_draw_string(display, scroll_pos, message);
         max7219_refresh(display);
 
         // Move scroll position
-        // scroll_pos--;
-        // if (scroll_pos < -(int16_t)message_width) {
-        //     scroll_pos = MAX7219_DISPLAY_WIDTH;
-        // }
+        scroll_pos--;
+        if (scroll_pos < -(int16_t)message_width) {
+            scroll_pos = MAX7219_DISPLAY_WIDTH;
+        }
 
         // PWM delay loop for scroll timing + brightness control
         int remaining_ms = SCROLL_DELAY_MS;
@@ -108,22 +162,6 @@ static void max7219_display_task(void *pvParameters)
         }
     }
 }
-
-/*
-// TESTING
-
-  void app_main(void)
-  {
-      gpio_set_direction(GPIO_NUM_0, GPIO_MODE_OUTPUT);
-      while(1) {
-          gpio_set_level(GPIO_NUM_0, 1);
-          vTaskDelay(pdMS_TO_TICKS(500));
-          gpio_set_level(GPIO_NUM_0, 0);
-          vTaskDelay(pdMS_TO_TICKS(500));
-      }
-  }
-//END TESTING
-*/
 
 void app_main(void)
 {
@@ -175,10 +213,12 @@ void app_main(void)
     ESP_LOGI(TAG, "Scrolling message: \"%s\"", MESSAGE);
 
     // Start combined display task (handles scrolling + PWM brightness + light sensing)
-    static display_task_params_t params;
+    static max2719_task_params_t params;
     params.display = &display;
     params.message = MESSAGE;
     params.adc_handle = adc_handle;
-    xTaskCreate(max7219_display_task, "max7219_display", 2048, &params, 5, NULL);
-    ESP_LOGI(TAG, "Display task started (initial brightness=%d%%)", pwm_brightness);
+    xTaskCreate(max7219_scrolling_task, "max7219_scrolling", 2048, &params, 5, NULL);
+    // params.message = "09:17";
+    // xTaskCreate(max7219_fixed_task, "max7219_fixed", 2048, &params, 5, NULL);
+    ESP_LOGI(TAG, "display task started ...");
 }
