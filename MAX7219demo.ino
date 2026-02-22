@@ -17,18 +17,48 @@
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW  // Common generic 4-in-1 module
 #define MAX_DEVICES   4
 
+
+/******************************************
+ *
+ *    Choose your target board
+ */
+
+//  board used in Photonics board V1 and V2
+// #define WAVESHARE 1
+
+//  New ECE474 board  https://docs.google.com/document/d/120g8dmppOGRIvT86oq4wsmy1EHkoupO35HWlL6QGIuM/edit?tab=t.0
+//  Generic ESP32-C3 "SuperMini"
+#define SUPERMINI 1
+/******************************************/
+
+
 // Pin assignments (matching original ESP-IDF project)
+#ifdef WAVESHARE
 #define PIN_CLK   4
 #define PIN_DATA  0   // DIN / MOSI
 #define PIN_CS    2
+#define LED_ON    HIGH
+#define LED_OFF   LOW
+#endif
 
-#define PIN_PHOTORESISTOR 5  // ADC input for ambient light sensor
+// [NoLogo/generic] ESP32-C3  "Super Mini"
+#ifdef SUPERMINI
+#define PIN_CLK   7
+#define PIN_DATA  5   // DIN / MOSI
+#define PIN_CS    6
+#define LED_ON    LOW
+#define LED_OFF   HIGH
+#endif
+
+// 0 for supermini
+// 5 for waveshare
+#define PIN_PHOTORESISTOR  0 // ADC input for ambient light sensor
 
 // ---------------------------------------------------------------------------
 // Display modes — uncomment exactly one
 // ---------------------------------------------------------------------------
-#define MODE_SCROLLING
-// #define MODE_STATIC
+// #define MODE_SCROLLING
+#define MODE_STATIC
 
 // ---------------------------------------------------------------------------
 // Display parameters
@@ -87,6 +117,10 @@ void setup() {
   Serial.begin(115200);
   Serial.println("MAX7219 32x8 LED Matrix Demo (MD_Parola)");
 
+  // set up on-board LED
+  // initialize digital pin LED_BUILTIN as an output.
+  pinMode(LED_BUILTIN, OUTPUT);
+
   // Configure photoresistor pin (ESP32 ADC defaults to 12-bit: 0-4095)
   pinMode(PIN_PHOTORESISTOR, INPUT);
 
@@ -105,26 +139,51 @@ void setup() {
   Serial.print("Static message: ");
   Serial.println(MESSAGE_STATIC);
 #endif
+
+
+  /* Simple test: 3 blinks */
+
+  for(int i=0;i<3;i++){
+    digitalWrite(LED_BUILTIN, LED_ON);
+    delay(250);
+    digitalWrite(LED_BUILTIN, LED_OFF);
+    delay(750);   }
+
 }
 
 // ---------------------------------------------------------------------------
 // loop()
 // ---------------------------------------------------------------------------
 void loop() {
+
+  /* Simple test blink
+    digitalWrite(LED_BUILTIN, LED_ON);
+    delay(250);
+    digitalWrite(LED_BUILTIN, LED_OFF);
+    delay(750);   */
+
+
+  digitalWrite(LED_BUILTIN, HIGH);
   // --- Brightness update (non-blocking) ---
   unsigned long now = millis();
   if (now - lastBrightnessUpdate >= BRIGHTNESS_UPDATE_MS) {
     lastBrightnessUpdate = now;
     uint8_t intensity = readBrightness();
+    // uint8_t intensity = 128;
     display.setIntensity(intensity);
   }
 
+  /*
   // --- Display update ---
 #ifdef MODE_SCROLLING
   if (display.displayAnimate()) {
     // Animation cycle complete — reset to scroll again
     display.displayReset();
   }
-#endif
+#endif */
   // In static mode, nothing to do here; display holds its content.
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(100);
+
+
 }
