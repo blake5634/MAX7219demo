@@ -57,8 +57,8 @@
 // ---------------------------------------------------------------------------
 // Display modes — uncomment exactly one
 // ---------------------------------------------------------------------------
-// #define MODE_SCROLLING
-#define MODE_STATIC
+#define MODE_SCROLLING
+// #define MODE_STATIC
 
 // ---------------------------------------------------------------------------
 // Display parameters
@@ -164,6 +164,7 @@ void loop() {
 
 
   digitalWrite(LED_BUILTIN, HIGH);
+  delay(100);
   // --- Brightness update (non-blocking) ---
   unsigned long now = millis();
   if (now - lastBrightnessUpdate >= BRIGHTNESS_UPDATE_MS) {
@@ -173,14 +174,13 @@ void loop() {
     display.setIntensity(intensity);
   }
 
-  /*
   // --- Display update ---
 #ifdef MODE_SCROLLING
   if (display.displayAnimate()) {
     // Animation cycle complete — reset to scroll again
     display.displayReset();
   }
-#endif */
+#endif
   // In static mode, nothing to do here; display holds its content.
   digitalWrite(LED_BUILTIN, LOW);
   delay(100);
